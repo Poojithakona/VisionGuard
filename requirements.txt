@@ -3,7 +3,6 @@ numpy
 requests
 mediapipe
 scipy
-tensorflow==2.15.1
 twilio
 python-dotenv
 streamlit

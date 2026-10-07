@@ -12,11 +12,12 @@ load_dotenv()
 
 from scipy.signal import butter, filtfilt
 
-# pygame not used in cloud deployment
 try:
     import tensorflow as tf
+    from tensorflow import keras
 except Exception:
     tf = None
+    keras = None
 
 try:
     from twilio.rest import Client
