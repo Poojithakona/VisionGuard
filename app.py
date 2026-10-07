@@ -12,6 +12,7 @@ load_dotenv()
 
 from scipy.signal import butter, filtfilt
 
+# pygame not used in cloud deployment
 try:
     import tensorflow as tf
 except Exception:

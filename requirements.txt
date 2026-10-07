@@ -1,10 +1,9 @@
 opencv-python-headless
 numpy
-pygame
 requests
 mediapipe
 scipy
-tensorflow
+tensorflow==2.15.1
 twilio
 python-dotenv
 streamlit
