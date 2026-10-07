@@ -1,4 +1,4 @@
-opencv-python
+opencv-python-headless
 numpy
 pygame
 requests
@@ -7,3 +7,4 @@ scipy
 tensorflow
 twilio
 python-dotenv
+streamlit
