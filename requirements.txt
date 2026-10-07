@@ -1,0 +1,9 @@
+opencv-python
+numpy
+pygame
+requests
+mediapipe
+scipy
+tensorflow
+twilio
+python-dotenv

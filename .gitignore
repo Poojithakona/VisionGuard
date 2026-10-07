@@ -1,0 +1,20 @@
+# Environment variables
+.env
+
+# Model files (large binary files)
+*.h5
+*.keras
+*.pkl
+
+# Audio files
+*.wav
+*.mp3
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
