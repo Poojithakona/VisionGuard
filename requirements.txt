@@ -1,5 +1,5 @@
 opencv-python-headless==4.8.1.78
-numpy==1.26.4
+numpy==2.0.2
 requests==2.31.0
 mediapipe==0.10.9
 scipy==1.11.4
