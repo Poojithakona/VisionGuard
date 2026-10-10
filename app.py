@@ -1,3 +1,6 @@
+import streamlit as st
+st.set_page_config(page_title="VisionGuard", page_icon="🚗", layout="wide")
+
 import os
 import time
 import math
@@ -8,16 +11,12 @@ import cv2
 import numpy as np
 import requests
 import mediapipe as mp
-import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 from scipy.signal import butter, filtfilt
 from dotenv import load_dotenv
 from av import VideoFrame
 
 load_dotenv()
-
-# ── MUST BE FIRST ────────────────────────────────────────────
-st.set_page_config(page_title="VisionGuard", page_icon="🚗", layout="wide")
 
 # ── TWILIO ───────────────────────────────────────────────────
 try:
@@ -300,16 +299,12 @@ if ctx.video_processor:
     if st.button("🚨 Emergency SMS"):
         ctx.video_processor.send_emergency = True
     st.markdown("---")
-    ph = st.empty()
-    while ctx.state.playing:
-        r = ctx.video_processor.result
-        if r:
-            s = r.get("status","GREEN")
-            e = {"GREEN":"🟢","ORANGE":"🟠","RED":"🔴"}.get(s,"🟢")
-            with ph.container():
-                c1,c2,c3,c4 = st.columns(4)
-                c1.metric("Status", f"{e} {s}")
-                c2.metric("Heart Rate", f"{int(round(r['bpm'])) if r['bpm'] else '--'} BPM")
-                c3.metric("Signal", r.get("hrq","--"))
-                c4.metric("SMS", r.get("sms","--"))
-        time.sleep(0.5)
+    r = ctx.video_processor.result
+    if r:
+        s = r.get("status","GREEN")
+        e = {"GREEN":"🟢","ORANGE":"🟠","RED":"🔴"}.get(s,"🟢")
+        c1,c2,c3,c4 = st.columns(4)
+        c1.metric("Status", f"{e} {s}")
+        c2.metric("Heart Rate", f"{int(round(r['bpm'])) if r['bpm'] else '--'} BPM")
+        c3.metric("Signal", r.get("hrq","--"))
+        c4.metric("SMS", r.get("sms","--"))
