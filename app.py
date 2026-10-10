@@ -43,11 +43,13 @@ RIGHT_IRIS = [473, 474, 475, 476, 477]
 FACE_OVAL  = [10,338,297,332,284,251,389,356,454,323,361,288,
               397,365,379,378,400,377,152,148,176,149,150,136,
               172,58,132,93,234,127,162,21,54,103,67,109,10]
+REFERENCE_INDICES = [10,152,1,4,13,14,33,133,362,263,61,291,234,454]
 
-EYE_CLOSED_EAR  = 0.20
-EYE_THRESHOLD   = 2
-SMS_DELAY       = 10
-HR_LOW, HR_HIGH = 45.0, 150.0
+EYE_CLOSED_EAR   = 0.20
+EYE_THRESHOLD    = 2
+ALERT_SOUND_DELAY = 5
+SMS_DELAY        = 10
+HR_LOW, HR_HIGH  = 45.0, 150.0
 RPPG_MIN_SAMPLES = 180
 MIN_SNR          = 1.15
 GOOD_SNR         = 2.0
@@ -65,7 +67,9 @@ def send_sms(frame):
         return False, "TWILIO NOT CONFIGURED"
     try:
         cv2.imwrite("driver.jpg", frame)
-        _client.messages.create(body=f"🚨 EMERGENCY!\nDriver unsafe.\nLocation:\n{get_location()}", from_=TWILIO_NUMBER, to=ALERT_PHONE)
+        _client.messages.create(
+            body=f"🚨 EMERGENCY!\nDriver unsafe.\nLocation:\n{get_location()}",
+            from_=TWILIO_NUMBER, to=ALERT_PHONE)
         return True, "SMS SENT ✅"
     except Exception:
         return False, "SMS ERROR"
@@ -91,16 +95,32 @@ def predict_drowsy(frame):
 
 def draw_overlay(frame, lm):
     h, w = frame.shape[:2]
+    # reference dots
+    for idx in REFERENCE_INDICES:
+        x, y = point_xy(lm[idx], w, h)
+        cv2.circle(frame, (x,y), 2, (80,210,255), -1)
+    # rPPG ROI dots
+    for cx, cy in [
+        (point_xy(lm[10],w,h)[0],  point_xy(lm[10],w,h)[1]+18),
+        (point_xy(lm[234],w,h)[0]+18, point_xy(lm[234],w,h)[1]+8),
+        (point_xy(lm[454],w,h)[0]-18, point_xy(lm[454],w,h)[1]+8),
+    ]:
+        cv2.circle(frame, (int(cx),int(cy)), 4, (0,0,255), -1, cv2.LINE_AA)
+        cv2.circle(frame, (int(cx),int(cy)), 1, (255,255,255), -1, cv2.LINE_AA)
+    # face oval
     pts = np.array([point_xy(lm[i],w,h) for i in FACE_OVAL], dtype=np.int32)
     cv2.polylines(frame,[pts],False,(75,180,205),1,cv2.LINE_AA)
+    # eyes
     for eye in (LEFT_EYE, RIGHT_EYE):
         ep = np.array([point_xy(lm[i],w,h) for i in eye], dtype=np.int32)
         cv2.polylines(frame,[ep],True,(70,220,150),2,cv2.LINE_AA)
+    # iris
     for iris in (LEFT_IRIS, RIGHT_IRIS):
         ip = np.array([point_xy(lm[i],w,h) for i in iris], dtype=np.float32)
         c  = np.mean(ip,axis=0).astype(int)
         r  = int(max(2, np.mean(np.linalg.norm(ip-c,axis=1))))
         cv2.circle(frame,tuple(c),r,(70,190,255),1,cv2.LINE_AA)
+        cv2.circle(frame,tuple(c),2,(255,255,255),-1)
 
 # ── rPPG ─────────────────────────────────────────────────────
 class RPPGProcessor:
@@ -149,6 +169,9 @@ class RPPGProcessor:
         quality="GOOD" if snr>=GOOD_SNR else ("FAIR" if snr>=FAIR_SNR else "WEAK"); self.last_snr=snr
         if snr<MIN_SNR: self.last_quality=quality; return self.last_hr,self.last_quality,self.last_snr
         peak_f=float(f[k])
+        if 0<k<len(mag)-1:
+            y1,y2,y3=np.log(np.maximum(mag[k-1:k+2],1e-12)); denom=y1-2*y2+y3
+            if abs(denom)>1e-12: peak_f+=float(0.5*(y1-y3)/denom)*(f[1]-f[0])
         candidate=peak_f*60.0
         if not math.isfinite(candidate) or not (HR_LOW<=candidate<=HR_HIGH): self.last_quality="NO SIGNAL"; return self.last_hr,self.last_quality,self.last_snr
         self.hist.append(candidate); consensus=float(np.median(self.hist))
@@ -196,22 +219,29 @@ def draw_dashboard(frame,status,drowsy,le,re,hr,hrq,snr,fps,sms,model_ok):
     canvas=np.full((H,W,3),(12,13,15),dtype=np.uint8)
     mg,hh,gap,fh=24,62,18,48
     cv2.putText(canvas,"AI DRIVER MONITORING SYSTEM",(mg,40),cv2.FONT_HERSHEY_SIMPLEX,0.95,(242,242,238),2,cv2.LINE_AA)
+    cv2.putText(canvas,"REAL-TIME DRIVER SAFETY",(W-285,38),cv2.FONT_HERSHEY_SIMPLEX,0.55,(150,150,150),1,cv2.LINE_AA)
     cv2.line(canvas,(mg,hh),(W-mg,hh),(55,58,62),1)
     ct,cb=hh+16,H-fh; lw=int(W*0.66); lx1,lx2=mg,mg+lw; rx1,rx2=lx2+gap,W-mg
+    # camera panel
     draw_panel(canvas,lx1,ct,lx2,cb,"LIVE CAMERA",(40,155,220))
     cx1,cy1,cx2,cy2=lx1+12,ct+52,lx2-12,cb-12; aw,ah=cx2-cx1,cy2-cy1
     fh2,fw=frame.shape[:2]; sc=min(aw/fw,ah/fh2); dw,dh=max(1,int(fw*sc)),max(1,int(fh2*sc))
     cam=cv2.resize(frame,(dw,dh),interpolation=cv2.INTER_LINEAR)
     dx,dy=cx1+(aw-dw)//2,cy1+(ah-dh)//2
     canvas[dy:dy+dh,dx:dx+dw]=cam
+    cv2.circle(canvas,(cx1+20,cy1+20),5,(60,220,75),-1)
+    cv2.putText(canvas,"FACE TRACKING",(cx1+34,cy1+25),cv2.FONT_HERSHEY_SIMPLEX,0.48,(230,230,230),1,cv2.LINE_AA)
+    # status colors
     sc2=(55,220,65) if status=="GREEN" else ((0,165,255) if status=="ORANGE" else (45,45,235))
     st2="NORMAL" if status=="GREEN" else ("WARNING" if status=="ORANGE" else "UNSAFE")
     sub="DRIVER CONDITION NORMAL" if status=="GREEN" else ("ATTENTION REQUIRED" if status=="ORANGE" else "DRIVER SAFETY RISK")
-    tot=cb-ct-gap*2; p1h=int(tot*0.27); p2h=int(tot*0.36); p3h=tot-p1h-p2h
+    tot=cb-ct-gap*2; p1h=int(tot*0.27); p2h=int(tot*0.36)
     p1y1,p1y2=ct,ct+p1h; p2y1,p2y2=p1y2+gap,p1y2+gap+p2h; p3y1,p3y2=p2y2+gap,cb
+    # status panel
     draw_panel(canvas,rx1,p1y1,rx2,p1y2,"FINAL STATUS",sc2)
     cv2.putText(canvas,st2,(rx1+24,p1y1+94),cv2.FONT_HERSHEY_SIMPLEX,1.18,sc2,3,cv2.LINE_AA)
     cv2.putText(canvas,sub,(rx1+25,p1y1+127),cv2.FONT_HERSHEY_SIMPLEX,0.48,(185,185,185),1,cv2.LINE_AA)
+    # drowsiness panel
     dc=(45,45,235) if drowsy else (55,205,70)
     draw_panel(canvas,rx1,p2y1,rx2,p2y2,"DROWSINESS",dc)
     ix=rx1+24; c2x=rx1+int((rx2-rx1)*0.52)
@@ -223,29 +253,37 @@ def draw_dashboard(frame,status,drowsy,le,re,hr,hrq,snr,fps,sms,model_ok):
     cv2.putText(canvas,"DROWSINESS DETECTED" if drowsy else "EYES OPEN / NORMAL",(ix,p2y1+146),cv2.FONT_HERSHEY_SIMPLEX,0.48,dc,1,cv2.LINE_AA)
     cv2.putText(canvas,f"EAR   L {le:.2f}    R {re:.2f}",(ix,p2y1+177),cv2.FONT_HERSHEY_SIMPLEX,0.42,(145,145,145),1,cv2.LINE_AA)
     cv2.putText(canvas,"CNN: ACTIVE" if model_ok else "CNN: EYE-BASED MODE",(ix,p2y1+205),cv2.FONT_HERSHEY_SIMPLEX,0.40,(130,130,130),1,cv2.LINE_AA)
+    # heart rate panel
     draw_panel(canvas,rx1,p3y1,rx2,p3y2,"rPPG / HEART RATE",(45,190,215))
     cv2.putText(canvas,"--" if hr is None else f"{int(round(hr))}",(ix,p3y1+88),cv2.FONT_HERSHEY_SIMPLEX,1.25,(240,240,240),3,cv2.LINE_AA)
     cv2.putText(canvas,"BPM",(ix+125,p3y1+88),cv2.FONT_HERSHEY_SIMPLEX,0.55,(175,175,175),2,cv2.LINE_AA)
     sigc=(55,220,70) if hrq=="GOOD" else ((0,190,255) if hrq=="FAIR" else (160,160,160))
     cv2.putText(canvas,f"SIGNAL: {hrq}",(ix,p3y1+122),cv2.FONT_HERSHEY_SIMPLEX,0.45,sigc,1,cv2.LINE_AA)
     cv2.putText(canvas,f"SNR {snr:.2f}    FPS {fps:.1f}",(ix,p3y1+151),cv2.FONT_HERSHEY_SIMPLEX,0.40,(145,145,145),1,cv2.LINE_AA)
+    cv2.putText(canvas,"Facial RGB -> POS -> Bandpass -> FFT",(ix,p3y1+179),cv2.FONT_HERSHEY_SIMPLEX,0.38,(125,125,125),1,cv2.LINE_AA)
+    # footer
+    fy=H-16
+    cv2.putText(canvas,"🚨 Emergency SMS button below",(24,fy),cv2.FONT_HERSHEY_SIMPLEX,0.48,(220,220,220),1,cv2.LINE_AA)
     smsc=(55,220,70) if "SENT" in sms else ((0,165,255) if "ERROR" in sms else (140,140,140))
-    cv2.putText(canvas,sms[:30],(W-290,H-16),cv2.FONT_HERSHEY_SIMPLEX,0.43,smsc,1,cv2.LINE_AA)
+    cv2.putText(canvas,sms[:30],(W-290,fy),cv2.FONT_HERSHEY_SIMPLEX,0.43,smsc,1,cv2.LINE_AA)
     return canvas
 
 # ── VIDEO PROCESSOR ──────────────────────────────────────────
 class DriverMonitor(VideoProcessorBase):
     def __init__(self):
-        self.face_mesh  = mp.solutions.face_mesh.FaceMesh(static_image_mode=False,max_num_faces=1,refine_landmarks=True,min_detection_confidence=0.55,min_tracking_confidence=0.55)
-        self.rppg       = RPPGProcessor()
-        self.eye_start  = None
-        self.alert_start= None
-        self.sms_sent   = False
-        self.sms_status = "SMS READY"
-        self.fps_smooth = 0.0
-        self.last_t     = time.time()
-        self.result     = {}
+        self.face_mesh   = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=False, max_num_faces=1, refine_landmarks=True,
+            min_detection_confidence=0.55, min_tracking_confidence=0.55)
+        self.rppg        = RPPGProcessor()
+        self.eye_start   = None
+        self.alert_start = None
+        self.sms_sent    = False
+        self.sms_status  = "SMS READY"
+        self.fps_smooth  = 0.0
+        self.last_t      = time.time()
+        self.result      = {}
         self.send_emergency = False
+        self.alarm_active   = False
 
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
@@ -273,38 +311,90 @@ class DriverMonitor(VideoProcessorBase):
         snr   = rsnr if rsnr else self.rppg.last_snr
         hr_state = "NORMAL" if bpm_d is None or bpm_d==0 or 60<=bpm_d<=100 else ("WARNING" if (50<=bpm_d<60 or 100<bpm_d<=110) else "CRITICAL")
         status = "RED" if (final_drowsy and hr_state=="CRITICAL") else ("ORANGE" if (final_drowsy or hr_state=="WARNING") else "GREEN")
+        # emergency button
         if self.send_emergency:
             _,msg=send_sms(img); self.sms_status=msg; self.send_emergency=False
+        # auto alert + SMS
         if drowsy_eye:
             if self.alert_start is None: self.alert_start=now; self.sms_sent=False
-            if now-self.alert_start>=SMS_DELAY and not self.sms_sent:
+            elapsed=now-self.alert_start
+            if elapsed>=ALERT_SOUND_DELAY: self.alarm_active=True
+            if elapsed>=SMS_DELAY and not self.sms_sent:
                 sent,msg=send_sms(img); self.sms_status=msg
                 if sent: self.sms_sent=True
         else:
-            self.alert_start=None; self.sms_sent=False; self.sms_status="SMS READY"
-        self.result={"status":status,"drowsy":final_drowsy,"le":le,"re":re,"bpm":bpm_d,"hrq":hrq,"snr":snr,"fps":self.fps_smooth,"sms":self.sms_status}
-        dash=draw_dashboard(img,status,final_drowsy,le,re,float(bpm_d) if bpm_d else None,hrq,snr,self.fps_smooth,self.sms_status,_model is not None)
+            self.alarm_active=False; self.alert_start=None; self.sms_sent=False; self.sms_status="SMS READY"
+        self.result={"status":status,"drowsy":final_drowsy,"le":le,"re":re,
+                     "bpm":bpm_d,"hrq":hrq,"snr":snr,"fps":self.fps_smooth,
+                     "sms":self.sms_status,"alarm":self.alarm_active}
+        dash=draw_dashboard(img,status,final_drowsy,le,re,
+                            float(bpm_d) if bpm_d else None,
+                            hrq,snr,self.fps_smooth,self.sms_status,_model is not None)
         out=VideoFrame.from_ndarray(dash,format="bgr24"); out.pts=frame.pts; out.time_base=frame.time_base
         return out
+
+# ── ALERT SOUND (browser-side) ───────────────────────────────
+ALARM_JS = """
+<script>
+var _vg_alarm = null;
+function vgStartAlarm() {
+    if (_vg_alarm) return;
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    function beep() {
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = 880;
+        g.gain.setValueAtTime(0.6, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.4);
+        o.start(ctx.currentTime); o.stop(ctx.currentTime+0.4);
+    }
+    beep();
+    _vg_alarm = setInterval(beep, 600);
+}
+function vgStopAlarm() {
+    if (_vg_alarm) { clearInterval(_vg_alarm); _vg_alarm = null; }
+}
+</script>
+"""
 
 # ── UI ───────────────────────────────────────────────────────
 st.title("🚗 VisionGuard — AI Driver Monitoring System")
 st.caption("Real-time drowsiness detection + rPPG heart rate monitoring")
 
+st.components.v1.html(ALARM_JS, height=0)
+
 RTC = RTCConfiguration({"iceServers":[{"urls":["stun:stun.l.google.com:19302"]}]})
-ctx = webrtc_streamer(key="vg", video_processor_factory=DriverMonitor, rtc_configuration=RTC,
-                      media_stream_constraints={"video":True,"audio":False}, async_processing=True)
+ctx = webrtc_streamer(
+    key="vg",
+    video_processor_factory=DriverMonitor,
+    rtc_configuration=RTC,
+    media_stream_constraints={"video":True,"audio":False},
+    async_processing=True,
+)
 
 if ctx.video_processor:
-    if st.button("🚨 Emergency SMS"):
-        ctx.video_processor.send_emergency = True
+    col_btn1, col_btn2, _ = st.columns([1,1,4])
+    with col_btn1:
+        if st.button("🚨 Emergency SMS"):
+            ctx.video_processor.send_emergency = True
+    with col_btn2:
+        if st.button("🔕 Stop Alarm"):
+            ctx.video_processor.alarm_active = False
+            st.components.v1.html("<script>vgStopAlarm();</script>", height=0)
+
     st.markdown("---")
     r = ctx.video_processor.result
     if r:
         s = r.get("status","GREEN")
         e = {"GREEN":"🟢","ORANGE":"🟠","RED":"🔴"}.get(s,"🟢")
         c1,c2,c3,c4 = st.columns(4)
-        c1.metric("Status", f"{e} {s}")
-        c2.metric("Heart Rate", f"{int(round(r['bpm'])) if r['bpm'] else '--'} BPM")
-        c3.metric("Signal", r.get("hrq","--"))
-        c4.metric("SMS", r.get("sms","--"))
+        c1.metric("Status",    f"{e} {s}")
+        c2.metric("Heart Rate",f"{int(round(r['bpm'])) if r['bpm'] else '--'} BPM")
+        c3.metric("Signal",    r.get("hrq","--"))
+        c4.metric("SMS",       r.get("sms","--"))
+        # trigger browser alarm
+        if r.get("alarm"):
+            st.components.v1.html("<script>vgStartAlarm();</script>", height=0)
+        else:
+            st.components.v1.html("<script>vgStopAlarm();</script>", height=0)
