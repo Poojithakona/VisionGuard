@@ -5,6 +5,6 @@ mediapipe==0.10.9
 scipy==1.13.1
 twilio==8.10.0
 python-dotenv==1.0.0
-streamlit==1.31.0
+streamlit==1.40.0
 streamlit-webrtc==0.47.1
 av==12.3.0
