@@ -1,8 +1,8 @@
-opencv-python-headless==4.8.1.78
+opencv-python-headless
 numpy==2.0.2
 requests==2.31.0
 mediapipe==0.10.9
-scipy==1.11.4
+scipy==1.13.1
 twilio==8.10.0
 python-dotenv==1.0.0
 streamlit==1.31.0
