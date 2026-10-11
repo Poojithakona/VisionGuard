@@ -422,7 +422,13 @@ st.caption("Real-time drowsiness detection + rPPG heart rate monitoring")
 
 st.components.v1.html(ALARM_JS, height=0)
 
-RTC = RTCConfiguration({"iceServers":[{"urls":["stun:stun.l.google.com:19302"]}]})
+RTC = RTCConfiguration({"iceServers":[
+    {"urls":["stun:stun.l.google.com:19302"]},
+    {"urls":["stun:stun1.l.google.com:19302"]},
+    {"urls":["turn:a.relay.metered.ca:80"],"username":"83eebabf8b1cfa513a649607","credential":"2D7JvfkOQtBdYW3R"},
+    {"urls":["turn:a.relay.metered.ca:443"],"username":"83eebabf8b1cfa513a649607","credential":"2D7JvfkOQtBdYW3R"},
+    {"urls":["turns:a.relay.metered.ca:443?transport=tcp"],"username":"83eebabf8b1cfa513a649607","credential":"2D7JvfkOQtBdYW3R"}
+]})
 ctx = webrtc_streamer(
     key="vg",
     video_processor_factory=DriverMonitor,
